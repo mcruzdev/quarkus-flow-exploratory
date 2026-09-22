@@ -41,9 +41,31 @@ capture_dev_ui_flow() {
     log_warn "node not found, skipping Dev UI screenshot flow"
     return 1
   fi
-  if ! node "${REPO_ROOT}/scripts/playwright/area-a-dev-ui-flow.mjs" "$url" "$evidence_dir" >"$log_file" 2>&1; then
+  if ! node "${REPO_ROOT}/scripts/playwright/dev-ui-workflows-flow.mjs" "$url" "$evidence_dir" >"$log_file" 2>&1; then
     log_warn "Dev UI screenshot flow failed, see $(basename "$log_file")"
     return 1
   fi
   [ -f "${evidence_dir}/01-dev-ui-extensions.png" ] && [ -f "${evidence_dir}/02-dev-ui-workflows.png" ]
+}
+
+# capture_dev_ui_execute <base_url> <namespace> <name> <version> <input_text>
+#   <evidence_dir> <screenshot_name> <output_text_file> <log_file>
+# Best-effort Playwright run of one workflow from the Dev UI's execute view
+# (opens the row's Run button, submits input_text, clicks "Start workflow").
+# Writes output_text_file with the output panel's raw value on success.
+# Same degrade-to-skipped-not-failed pattern as capture_dev_ui_flow.
+capture_dev_ui_execute() {
+  local url="$1" namespace="$2" name="$3" version="$4" input_text="$5"
+  local evidence_dir="$6" screenshot_name="$7" output_text_file="$8" log_file="$9"
+  if ! command -v node >/dev/null 2>&1; then
+    log_warn "node not found, skipping Dev UI execute flow for ${name}"
+    return 1
+  fi
+  if ! node "${REPO_ROOT}/scripts/playwright/dev-ui-execute-workflow-flow.mjs" \
+      "$url" "$namespace" "$name" "$version" "$input_text" "$evidence_dir" "$screenshot_name" "$output_text_file" \
+      >"$log_file" 2>&1; then
+    log_warn "Dev UI execute flow failed for ${name}, see $(basename "$log_file")"
+    return 1
+  fi
+  [ -f "$output_text_file" ]
 }

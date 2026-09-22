@@ -57,17 +57,27 @@ worst_status_exit_code() {
   fi
 }
 
-# render_summary <evidence_dir> — writes SUMMARY.md and echoes it.
+# render_summary <evidence_dir> <area_id> — writes SUMMARY.md and echoes
+# it. area_id looks up the area's display title in config/areas.tsv
+# (falls back to area_id itself if not found or the file is missing).
 render_summary() {
-  local dir="$1"
+  local dir="$1" area_id="${2:-}"
   local summary="${dir}/SUMMARY.md"
 
   if [ ! -f "$RESULTS_FILE" ]; then
     return
   fi
 
+  local area_title="$area_id"
+  local areas_tsv="${REPO_ROOT:-}/config/areas.tsv"
+  if [ -n "$area_id" ] && [ -f "$areas_tsv" ]; then
+    local found_title
+    found_title="$(awk -F'\t' -v id="$area_id" '$1==id {print $2}' "$areas_tsv")"
+    [ -n "$found_title" ] && area_title="$found_title"
+  fi
+
   {
-    echo "# Area A — Exploratory Run Summary"
+    echo "# ${area_title} — Exploratory Run Summary"
     echo
     echo "Run: $(basename "$dir")"
     echo "Date: $(timestamp)"
@@ -79,6 +89,29 @@ render_summary() {
     done
     echo
 
+    if [ -f "${dir}/java-version.txt" ] || [ -f "${dir}/maven-version.txt" ] || [ -f "${dir}/os-info.txt" ]; then
+      # GitHub (and any CommonMark renderer) renders raw <details>/<summary>
+      # in Markdown, so this collapses by default without any JS. The blank
+      # lines after each tag are required for the nested Markdown (bold
+      # text, code fences) to render instead of being treated as raw HTML.
+      echo "<details>"
+      echo "<summary>Captured environment</summary>"
+      echo
+      for pair in "java-version.txt:Java" "maven-version.txt:Maven" "os-info.txt:OS"; do
+        local file="${dir}/${pair%%:*}" label="${pair##*:}"
+        if [ -f "$file" ]; then
+          echo "**${label}**"
+          echo
+          echo '```'
+          tail -n +5 "$file"
+          echo '```'
+          echo
+        fi
+      done
+      echo "</details>"
+      echo
+    fi
+
     if [ -f "${dir}/01-dev-ui-extensions.png" ]; then
       echo "## Dev UI Screenshots"
       echo
@@ -88,6 +121,13 @@ render_summary() {
       echo
       echo "![Dev UI Workflows](02-dev-ui-workflows.png)"
       echo
+      if [ -f "${dir}/03-dev-ui-execute-valid.png" ]; then
+        echo "Executing from the Dev UI with valid, then malformed, input:"
+        echo
+        echo "![Dev UI Execute — Valid Input](03-dev-ui-execute-valid.png)"
+        echo
+        [ -f "${dir}/04-dev-ui-execute-invalid.png" ] && echo "![Dev UI Execute — Invalid Input](04-dev-ui-execute-invalid.png)" && echo
+      fi
     fi
 
     echo "## Result Legend"

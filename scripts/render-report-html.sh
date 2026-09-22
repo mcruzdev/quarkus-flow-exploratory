@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# render-report-html.sh <evidence_dir> <outfile>
+# render-report-html.sh <area_id> <evidence_dir> <outfile>
 #
 # Renders a standalone HTML report from a single run's evidence directory
 # (same results.tsv that SUMMARY.md is built from), for publishing to
-# GitHub Pages. Styled with IBM's Carbon Design System (carbon-components,
-# loaded from a CDN — this is a real published page, not a sandboxed
-# Claude artifact, so an external stylesheet is fine here).
+# GitHub Pages. area_id looks up the area's display title in
+# config/areas.tsv — this script itself has nothing Area-A-specific left in
+# it, so any area's evidence dir renders the same way. Styled with IBM's
+# Carbon Design System (carbon-components, loaded from a CDN — this is a
+# real published page, not a sandboxed Claude artifact, so an external
+# stylesheet is fine here).
 # Not sourced by area scripts — invoked directly from CI or by hand.
 set -euo pipefail
 
@@ -15,15 +18,25 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${REPO_ROOT}/lib/common.sh"
 # shellcheck source=../lib/result.sh
 source "${REPO_ROOT}/lib/result.sh"
+# shellcheck source=../lib/html.sh
+source "${REPO_ROOT}/lib/html.sh"
 
-EVIDENCE_DIR="${1:?usage: render-report-html.sh <evidence_dir> <outfile>}"
-OUT_FILE="${2:?usage: render-report-html.sh <evidence_dir> <outfile>}"
+AREA_ID="${1:?usage: render-report-html.sh <area_id> <evidence_dir> <outfile>}"
+EVIDENCE_DIR="${2:?usage: render-report-html.sh <area_id> <evidence_dir> <outfile>}"
+OUT_FILE="${3:?usage: render-report-html.sh <area_id> <evidence_dir> <outfile>}"
 RESULTS_TSV="${EVIDENCE_DIR}/results.tsv"
 RUN_ID="$(basename "$EVIDENCE_DIR")"
+AREAS_TSV="${REPO_ROOT}/config/areas.tsv"
 
 if [ ! -f "$RESULTS_TSV" ]; then
   echo "No results.tsv found in ${EVIDENCE_DIR}" >&2
   exit 1
+fi
+
+AREA_TITLE="$AREA_ID"
+if [ -f "$AREAS_TSV" ]; then
+  found_title="$(awk -F'\t' -v id="$AREA_ID" '$1==id {print $2}' "$AREAS_TSV")"
+  [ -n "$found_title" ] && AREA_TITLE="$found_title"
 fi
 
 # status_tag_color <status> — maps our PASS/OBSERVATION/FAIL/BLOCKED/FOLLOWUP
@@ -40,41 +53,20 @@ status_tag_color() {
   esac
 }
 
-{
-  cat <<'HTML'
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Quarkus Flow Exploratory — Area A Report</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/carbon-components@10/css/carbon-components.min.css">
-<style>
-  body { margin: 0; }
-  main.bx--content { max-width: 960px; margin: 0 auto; padding: 3rem 1rem 4rem; }
-  .run-meta { color: #525252; margin: 0.5rem 0 2.5rem; }
-  .run-meta code { font-family: 'IBM Plex Mono', monospace; }
-  h1 { margin-bottom: 0; }
-  h2 { margin: 2.5rem 0 1rem; }
+REPORT_CSS='  .run-meta { color: #525252; margin: 0.5rem 0 2.5rem; }
+  .run-meta code { font-family: '"'"'IBM Plex Mono'"'"', monospace; }
   .bx--data-table-container { margin-bottom: 1rem; }
   .bx--data-table td { vertical-align: top; }
   img.evidence-shot { max-width: 100%; display: block; margin: 1rem 0; border: 1px solid #e0e0e0; }
-  footer { color: #6f6f6f; font-size: 0.75rem; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #e0e0e0; max-width: 960px; margin-left: auto; margin-right: auto; padding-left: 1rem; padding-right: 1rem; box-sizing: border-box; }
-  footer a { color: inherit; }
-</style>
-</head>
-<body>
-<header class="bx--header" role="banner" aria-label="Quarkus Flow Exploratory">
-  <a class="bx--header__name" href="https://github.com/mcruzdev/quarkus-flow-exploratory">
-    <span class="bx--header__name--prefix">Quarkus&nbsp;Flow&nbsp;</span>&nbsp;Exploratory
-  </a>
-</header>
-<main class="bx--content">
-HTML
-  echo "<h1>Area A — Exploratory Run Report</h1>"
+  details.env-details { border: 1px solid #e0e0e0; padding: 0 1rem 1rem; margin-bottom: 1rem; }
+  details.env-details summary { cursor: pointer; padding: 1rem 0; font-weight: 600; }
+  details.env-details h3 { font-size: 0.875rem; margin: 1rem 0 0.25rem; }
+  details.env-details pre { background: #f4f4f4; padding: 0.75rem; overflow-x: auto; font-family: '"'"'IBM Plex Mono'"'"', monospace; font-size: 0.8125rem; margin: 0; }'
+
+{
+  carbon_page_head "Quarkus Flow Exploratory — ${AREA_TITLE}" "$REPORT_CSS"
+
+  echo "<h1>${AREA_TITLE} — Exploratory Run Report</h1>"
   echo "<p class=\"run-meta\">Run <code>${RUN_ID}</code> &middot; Generated $(timestamp)</p>"
 
   echo '<div class="bx--data-table-container">'
@@ -87,11 +79,30 @@ HTML
   done
   echo "</tbody></table></div>"
 
+  if [ -f "${EVIDENCE_DIR}/java-version.txt" ] || [ -f "${EVIDENCE_DIR}/maven-version.txt" ] || [ -f "${EVIDENCE_DIR}/os-info.txt" ]; then
+    echo '<details class="env-details">'
+    echo "<summary>Captured environment</summary>"
+    for pair in "java-version.txt:Java" "maven-version.txt:Maven" "os-info.txt:OS"; do
+      file="${EVIDENCE_DIR}/${pair%%:*}"
+      label="${pair##*:}"
+      if [ -f "$file" ]; then
+        echo "<h3>${label}</h3>"
+        printf '<pre>%s</pre>\n' "$(tail -n +5 "$file" | html_escape)"
+      fi
+    done
+    echo "</details>"
+  fi
+
   if [ -f "${EVIDENCE_DIR}/01-dev-ui-extensions.png" ]; then
     echo "<h2>Dev UI Screenshots</h2>"
     echo "<p>Extensions page, then the Flow extension's Workflows list after clicking through:</p>"
     echo '<img class="evidence-shot" src="01-dev-ui-extensions.png" alt="Quarkus Dev UI Extensions page">'
     echo '<img class="evidence-shot" src="02-dev-ui-workflows.png" alt="Quarkus Dev UI Workflows list">'
+    if [ -f "${EVIDENCE_DIR}/03-dev-ui-execute-valid.png" ]; then
+      echo "<p>Executing from the Dev UI with valid, then malformed, input:</p>"
+      echo '<img class="evidence-shot" src="03-dev-ui-execute-valid.png" alt="Dev UI execute with valid input">'
+      [ -f "${EVIDENCE_DIR}/04-dev-ui-execute-invalid.png" ] && echo '<img class="evidence-shot" src="04-dev-ui-execute-invalid.png" alt="Dev UI execute with invalid input">'
+    fi
   fi
 
   cat <<'HTML'
@@ -108,11 +119,9 @@ HTML
 </tbody>
 </table>
 </div>
-</main>
-<footer>Generated by <a href="https://github.com/mcruzdev/quarkus-flow-exploratory">quarkus-flow-exploratory</a> — automates the <a href="https://docs.quarkiverse.io/quarkus-flow/dev/">Quarkus Flow Exploratory Testing Guide</a>, Area A. Styled with <a href="https://carbondesignsystem.com/">IBM Carbon</a>.</footer>
-</body>
-</html>
 HTML
+
+  carbon_page_footer "Generated by <a href=\"https://github.com/mcruzdev/quarkus-flow-exploratory\">quarkus-flow-exploratory</a> — automates the <a href=\"https://docs.quarkiverse.io/quarkus-flow/dev/\">Quarkus Flow Exploratory Testing Guide</a>. Styled with <a href=\"https://carbondesignsystem.com/\">IBM Carbon</a>. <a href=\"../\">All scenarios</a>."
 } > "$OUT_FILE"
 
 echo "Wrote ${OUT_FILE}"

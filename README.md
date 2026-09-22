@@ -1,10 +1,10 @@
 # Quarkus Flow Exploratory Automation
 
-Bash automation for the [Quarkus Flow Exploratory Testing Guide](https://docs.quarkiverse.io/quarkus-flow/dev/). The guide has 19 areas (A–S); **this repo currently automates only Area A — Local Developer Workflow**, the local quickstart scenario. More areas may be added later following the same pattern (see [Adding a new area](#adding-a-new-area)).
+Bash automation for the [Quarkus Flow Exploratory Testing Guide](https://docs.quarkiverse.io/quarkus-flow/dev/). The guide has 19 areas (A–S); **this repo currently automates Area A (Local Developer Workflow) and Area C (Dev UI and Local Tracing)**. More areas may be added later following the same pattern (see [Adding a new area](#adding-a-new-area)).
 
-Runs locally and in CI (GitHub Actions) — see [`.github/workflows/area-a.yml`](.github/workflows/area-a.yml).
+Runs locally and in CI (GitHub Actions) — see [`.github/workflows/exploratory.yml`](.github/workflows/exploratory.yml).
 
-**Latest run report:** https://mcruzdev.github.io/quarkus-flow-exploratory/ (published automatically after every push to `main` — see [Published report](#published-report)).
+**Latest run report:** https://mcruzdev.github.io/quarkus-flow-exploratory/ (a landing page listing every scenario, published automatically after every push to `main` — see [Published report](#published-report)).
 
 ## What Area A validates
 
@@ -21,6 +21,21 @@ Runs locally and in CI (GitHub Actions) — see [`.github/workflows/area-a.yml`]
 
 Every run always stops the background `quarkus:dev` process and writes a pass/fail/blocked summary, whether it succeeds, fails, or is interrupted.
 
+## What Area C validates
+
+Builds on the same base project as Area A (reused, not regenerated — see [Reuse architecture](#reuse-architecture-across-areas)), adding a second, richer Java DSL workflow (`traced`: three chained tasks — `function` → `function` → `function`, each one actually transforming the previous task's output — so there's a meaningful multi-node graph and a multi-line trace, not just one step) to exercise the Dev UI itself, not just REST endpoints:
+
+1. Write the `traced` workflow + REST resource alongside Area A's `hello` workflow.
+2. Compile, start `quarkus:dev`.
+3. `GET /traced-flow` returns the workflow's output; the `Warming up 2 WorkflowDefinition beans` startup log line confirms both workflows registered.
+4. Trace log verification: grep `devmode.log` for the `TraceLoggerExecutionListener` workflow-started / task-started / task-completed / workflow-completed line shapes (tracing is on by default in dev mode — confirmed directly from captured logs, no config needed).
+5. Dev UI: reuses Area A's Workflows-list screenshot (now showing both `hello` and `traced` rows).
+6. **Executes the `traced` workflow from the Dev UI itself** (not REST) with valid JSON input (`{"name":"World"}`), reading the output panel's raw value directly — no screenshot-guessing needed, Dev UI keeps the full result text in a DOM attribute.
+7. Repeats with malformed JSON input. Confirmed live: Quarkus Flow's Dev UI reports this clearly — a red error toast plus a `# Error` block in the output panel naming the actual exception — so this is asserted as a real pass/fail, not just an observation.
+8. Live reload: edit the workflow's greeting while `quarkus:dev` is running and confirm the new value is served.
+
+The two Dev UI execution steps (6–7) are driven by [`scripts/playwright/dev-ui-execute-workflow-flow.mjs`](scripts/playwright/dev-ui-execute-workflow-flow.mjs), reused for both the valid and invalid case rather than writing two scripts.
+
 ## Prerequisites
 
 - bash
@@ -36,11 +51,13 @@ Every run always stops the background `quarkus:dev` process and writes a pass/fa
 
 ```bash
 ./scripts/areas/area-a.sh
+./scripts/areas/area-c.sh
 # or, via the dispatcher:
 ./scripts/run.sh area-a
+./scripts/run.sh area-c
 ```
 
-Exit code is `0` only if every step passed or was a best-effort observation; `1` if anything failed or was blocked.
+Each area is independently runnable — Area C regenerates its own project (reusing Area A's Java DSL templates, not Area A's actual run) rather than depending on a prior Area A run. Exit code is `0` only if every step passed or was a best-effort observation; `1` if anything failed or was blocked.
 
 ## Configuration
 
@@ -69,9 +86,9 @@ QF_VERSION=1.2.0 QUARKUS_PLATFORM_VERSION=3.28.4 ./scripts/areas/area-a.sh
 
 ### Overriding configuration in GitHub Actions
 
-The workflow ([`.github/workflows/area-a.yml`](.github/workflows/area-a.yml)) doesn't hardcode versions — it passes `QF_VERSION`, `QUARKUS_PLATFORM_VERSION`, `TEST_GROUP_ID`, `TEST_ARTIFACT_ID`, and `APP_PORT` through as env vars, resolved in this order:
+The workflow ([`.github/workflows/exploratory.yml`](.github/workflows/exploratory.yml)) doesn't hardcode versions — both the `area-a` and `area-c` jobs pass `QF_VERSION`, `QUARKUS_PLATFORM_VERSION`, `TEST_GROUP_ID`, `TEST_ARTIFACT_ID`, and `APP_PORT` through as env vars, resolved in this order:
 
-1. **Manual "Run workflow" input** — go to the *Actions* tab → *Area A - Local Developer Workflow* → *Run workflow*, and fill in any of the fields (e.g. a different `qf_version` to test an upcoming release). Only available for manually triggered runs, not `push`/`pull_request`.
+1. **Manual "Run workflow" input** — go to the *Actions* tab → *Quarkus Flow Exploratory* → *Run workflow*, and fill in any of the fields (e.g. a different `qf_version` to test an upcoming release). Applies to both jobs; only available for manually triggered runs, not `push`/`pull_request`.
 2. **Repository (or organization) Variable** — *Settings → Secrets and variables → Actions → Variables*, add e.g. `QF_VERSION` = `1.2.0`. This applies to every trigger type, including `push`/`pull_request`, with no workflow file changes needed.
 3. **The script's own default** in `config/defaults.env`, used whenever neither of the above is set.
 
@@ -79,14 +96,24 @@ The other timeout/retry knobs aren't exposed as manual inputs (to keep the trigg
 
 ## What it produces
 
-- `work/area-a/<RUN_ID>/hello-flow/` — the generated Quarkus project (gitignored).
-- `evidence/area-a/<RUN_ID>/` — logs, response bodies, `01-dev-ui-extensions.png` + `02-dev-ui-workflows.png`, and `SUMMARY.md` (gitignored locally; uploaded as a build artifact in CI).
+- `work/area-<x>/<RUN_ID>/hello-flow/` — the generated Quarkus project (gitignored).
+- `evidence/area-<x>/<RUN_ID>/` — logs, response bodies, screenshots, and `SUMMARY.md` (gitignored locally; uploaded as a build artifact in CI).
 
-Each run gets a fresh timestamped `RUN_ID`; nothing is ever overwritten, so runs can be repeated freely.
+Each run gets a fresh timestamped `RUN_ID`; nothing is ever overwritten, so runs can be repeated freely. Area A and Area C each generate their own independent project under their own `area-<x>/` tree.
+
+## Reuse architecture across areas
+
+Adding Area C on top of Area A was an exercise in not duplicating what already existed:
+
+- [`lib/bootstrap.sh`](lib/bootstrap.sh) — the "generate a project, add the extension, write the Java DSL `hello` workflow, compile" steps, extracted out of `area-a.sh` so Area C (and any future area) can reuse them instead of copy-pasting.
+- [`lib/html.sh`](lib/html.sh) — the shared Carbon `<head>`/header/footer HTML shell, used by both the per-area report renderer and the landing-page renderer.
+- [`config/areas.tsv`](config/areas.tsv) — one line per area (id, title, description); the single source of truth both the per-area report title and the landing page's scenario cards read from. Adding an area to the published site is one new line here.
+- [`scripts/playwright/dev-ui-workflows-flow.mjs`](scripts/playwright/dev-ui-workflows-flow.mjs) — the Workflows-list click-through screenshot is reused byte-for-byte between areas (it has no Area-A-specific assumptions — it just waits for *a* row to render).
+- [`.github/actions/setup-flow-env`](.github/actions/setup-flow-env/action.yml) — the Java/Node/Playwright CI toolchain setup, one composite action used by every area's job instead of duplicated workflow YAML.
 
 ## Published report
 
-Every push to `main` runs the `publish-report` job ([`.github/workflows/area-a.yml`](.github/workflows/area-a.yml)), which takes that run's evidence directory, renders it to a standalone HTML page via [`scripts/render-report-html.sh`](scripts/render-report-html.sh) — styled with [IBM's Carbon Design System](https://carbondesignsystem.com/) (`carbon-components` loaded from a CDN; this is a real published page, not a sandboxed artifact, so an external stylesheet is fine) — and deploys it to GitHub Pages: **https://mcruzdev.github.io/quarkus-flow-exploratory/**. It always reflects the most recent run on `main` — a failed run still gets published, since a red result is useful information too. Pull request runs are not published (only their evidence artifact is uploaded, per the existing behavior).
+Every push to `main` runs the `publish-report` job ([`.github/workflows/exploratory.yml`](.github/workflows/exploratory.yml)), which downloads each area's latest run evidence, renders each into its own page via [`scripts/render-report-html.sh`](scripts/render-report-html.sh) `<area_id>` — styled with [IBM's Carbon Design System](https://carbondesignsystem.com/) (`carbon-components` loaded from a CDN; this is a real published page, not a sandboxed artifact, so an external stylesheet is fine) — and renders a landing page via [`scripts/render-index-html.sh`](scripts/render-index-html.sh) linking to whichever areas actually published this run. Deploys the whole thing to GitHub Pages: **https://mcruzdev.github.io/quarkus-flow-exploratory/**. It always reflects the most recent run on `main` — a failed run still gets published, since a red result is useful information too. Pull request runs are not published (only their evidence artifact is uploaded, per the existing behavior).
 
 ## Result Legend
 
@@ -100,15 +127,18 @@ Every push to `main` runs the `publish-report` job ([`.github/workflows/area-a.y
 
 ## Known limitations
 
-- **Dev UI check clicks through to the Workflows list, but doesn't inspect the diagram.** [`scripts/playwright/area-a-dev-ui-flow.mjs`](scripts/playwright/area-a-dev-ui-flow.mjs) opens Extensions, clicks the Flow card's "Workflows" link, and waits for the list to render an actual row before screenshotting both pages (best-effort — if Node/Playwright aren't available it degrades to the plain `200` reachability check, always recorded as 🟡). It does not open the individual workflow to confirm its diagram renders — that judgment call is still manual.
-- Only Area A is automated. The other 18 areas in the guide (messaging, persistence, resilience, OpenShift, agentic/HITL, etc.) are still manual.
+- **Dev UI check clicks through to the Workflows list, but doesn't inspect the diagram.** [`scripts/playwright/dev-ui-workflows-flow.mjs`](scripts/playwright/dev-ui-workflows-flow.mjs) opens Extensions, clicks the Flow card's "Workflows" link, and waits for the list to render an actual row before screenshotting both pages (best-effort — if Node/Playwright aren't available it degrades to the plain `200` reachability check, always recorded as 🟡). It does not open the individual workflow to confirm its diagram renders — that judgment call is still manual.
+- Area B ("Workflow Definition Coverage: Java DSL and YAML/JSON") was deliberately skipped: it's inherently comparative (is YAML "as good as" Java DSL?) with no documented ground truth to assert against, which made scripting a real pass/fail verdict dishonest rather than useful. May be revisited as an evidence-capture-only exercise later.
+- Only Areas A and C are automated. The other 17 areas in the guide (messaging, persistence, resilience, OpenShift, agentic/HITL, etc.) are still manual.
 
 ## Adding a new area
 
-1. Copy `scripts/areas/area-a.sh` as a starting skeleton.
-2. Add any Java/YAML fixtures the new area needs under `templates/area-<x>/`.
-3. Reuse the helpers in `lib/` (`common.sh`, `http.sh`, `process.sh`, `evidence.sh`, `result.sh`) before adding new ones.
-4. `scripts/run.sh` picks up any script placed in `scripts/areas/` automatically — no registration needed.
+1. Copy `scripts/areas/area-a.sh` (or `area-c.sh`, if the new area also needs a Dev UI interaction) as a starting skeleton.
+2. Reuse [`lib/bootstrap.sh`](lib/bootstrap.sh) for the base project instead of re-deriving the create/add-extension/write-Java-DSL/compile steps.
+3. Add any Java/YAML fixtures the new area needs under `templates/area-<x>/`.
+4. Reuse the helpers in `lib/` (`common.sh`, `http.sh`, `process.sh`, `evidence.sh`, `result.sh`, `bootstrap.sh`, `html.sh`) before adding new ones.
+5. Add a line to [`config/areas.tsv`](config/areas.tsv) (area id, title, description) so the new area's report gets a proper title and shows up on the landing page.
+6. `scripts/run.sh` picks up any script placed in `scripts/areas/` automatically — no registration needed. Add the new job to `.github/workflows/exploratory.yml` (copy an existing area job, using the shared `./.github/actions/setup-flow-env` action) and add it to `publish-report`'s `needs:` list plus its own download/render block.
 
 ## Troubleshooting
 

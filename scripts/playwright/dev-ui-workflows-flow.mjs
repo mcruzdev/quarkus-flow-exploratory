@@ -16,7 +16,7 @@ import { chromium } from "playwright";
 const [, , baseUrl, outDir] = process.argv;
 
 if (!baseUrl || !outDir) {
-  console.error("Usage: area-a-dev-ui-flow.mjs <base_url> <out_dir>");
+  console.error("Usage: dev-ui-workflows-flow.mjs <base_url> <out_dir>");
   process.exit(2);
 }
 

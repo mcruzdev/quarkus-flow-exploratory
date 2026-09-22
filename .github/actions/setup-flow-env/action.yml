@@ -1,0 +1,27 @@
+name: Set up Flow exploratory environment
+description: >-
+  Java + Node + Playwright Chromium, shared by every area's CI job so the
+  toolchain setup isn't duplicated per job.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '21'
+        # No `cache: maven` here: this repo has no checked-in pom.xml for
+        # setup-java to key a cache off of — the Quarkus project is
+        # generated at runtime under the gitignored work/ directory, and
+        # its dependencies (QF_VERSION, QUARKUS_PLATFORM_VERSION) can
+        # change per run anyway.
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+
+    - name: Install Playwright (Dev UI screenshots)
+      shell: bash
+      run: |
+        npm ci
+        npx playwright install --with-deps chromium

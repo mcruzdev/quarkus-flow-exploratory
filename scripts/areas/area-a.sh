@@ -26,6 +26,8 @@ source "${REPO_ROOT}/lib/process.sh"
 source "${REPO_ROOT}/lib/evidence.sh"
 # shellcheck source=../../lib/result.sh
 source "${REPO_ROOT}/lib/result.sh"
+# shellcheck source=../../lib/bootstrap.sh
+source "${REPO_ROOT}/lib/bootstrap.sh"
 
 if [ -f "${REPO_ROOT}/config/defaults.env" ]; then
   # shellcheck source=../../config/defaults.env
@@ -73,7 +75,7 @@ cleanup() {
   if [ -n "${DEVMODE_PID:-}" ]; then
     stop_background "$DEVMODE_PID" "$DEVMODE_PGID" "$GRACEFUL_STOP_SECONDS"
   fi
-  render_summary "$EVIDENCE_DIR"
+  render_summary "$EVIDENCE_DIR" "area-a"
 }
 trap cleanup EXIT INT TERM
 
@@ -104,97 +106,6 @@ step_capture_environment() {
   capture_cmd "Maven version" "${EVIDENCE_DIR}/maven-version.txt" mvn -version
   capture_cmd "OS info" "${EVIDENCE_DIR}/os-info.txt" uname -a
   record_result capture_env "Capture environment info" PASS ""
-  return 0
-}
-
-_mvn_create_project() {
-  mvn -B -q io.quarkus.platform:quarkus-maven-plugin:"${QUARKUS_PLATFORM_VERSION}":create \
-    -DprojectGroupId="${TEST_GROUP_ID}" \
-    -DprojectArtifactId="${TEST_ARTIFACT_ID}" \
-    -DplatformVersion="${QUARKUS_PLATFORM_VERSION}" \
-    -Dextensions="rest-jackson" \
-    -DoutputDirectory="${WORKDIR}" \
-    >> "${EVIDENCE_DIR}/create-project.log" 2>&1
-}
-
-step_create_project() {
-  : > "${EVIDENCE_DIR}/create-project.log"
-
-  if port_in_use "$APP_PORT"; then
-    local owner
-    owner="$(port_owner_pid "$APP_PORT")"
-    record_result create_project "Create Quarkus project" BLOCKED "port ${APP_PORT} already in use${owner:+ (pid ${owner})}"
-    return 1
-  fi
-
-  ensure_dir "$WORKDIR"
-  if ! retry "$RETRY_MAX_ATTEMPTS" "$RETRY_DELAY_SECONDS" _mvn_create_project; then
-    record_result create_project "Create Quarkus project" BLOCKED "project generation failed after retries, see create-project.log"
-    return 1
-  fi
-
-  if [ ! -f "${PROJECT_DIR}/pom.xml" ] || [ ! -x "${PROJECT_DIR}/mvnw" ]; then
-    record_result create_project "Create Quarkus project" FAIL "pom.xml or mvnw missing after generation"
-    return 1
-  fi
-
-  find "$PROJECT_DIR" -type f | sort > "${EVIDENCE_DIR}/initial-files.txt"
-  echo "$PROJECT_DIR" > "${EVIDENCE_DIR}/project-path.txt"
-  record_result create_project "Create Quarkus project" PASS ""
-  return 0
-}
-
-_mvn_add_flow_extension() {
-  (cd "$PROJECT_DIR" && ./mvnw -B -q quarkus:add-extension \
-    -Dextensions="io.quarkiverse.flow:quarkus-flow:${QF_VERSION}") \
-    >> "${EVIDENCE_DIR}/add-extension.log" 2>&1
-}
-
-step_add_flow_dependency() {
-  : > "${EVIDENCE_DIR}/add-extension.log"
-
-  if ! retry "$RETRY_MAX_ATTEMPTS" "$RETRY_DELAY_SECONDS" _mvn_add_flow_extension; then
-    record_result add_extension "Add quarkus-flow extension" BLOCKED "extension add failed after retries, see add-extension.log"
-    return 1
-  fi
-
-  if ! grep -q "quarkus-flow" "${PROJECT_DIR}/pom.xml"; then
-    record_result add_extension "Add quarkus-flow extension" FAIL "quarkus-flow not found in pom.xml after add-extension"
-    return 1
-  fi
-
-  cp "${PROJECT_DIR}/pom.xml" "${EVIDENCE_DIR}/pom.xml"
-  grep -n "quarkus-flow\|quarkus-rest-jackson" "${PROJECT_DIR}/pom.xml" > "${EVIDENCE_DIR}/pom-dependencies.txt" || true
-  record_result add_extension "Add quarkus-flow extension" PASS ""
-  return 0
-}
-
-step_write_source_files() {
-  local pkg_dir="${PROJECT_DIR}/src/main/java/${PACKAGE_PATH}"
-  ensure_dir "$pkg_dir"
-  render_template "${TEMPLATES_DIR}/HelloFlow.java" "${pkg_dir}/HelloFlow.java" "PACKAGE=${TEST_GROUP_ID}"
-  render_template "${TEMPLATES_DIR}/Message.java" "${pkg_dir}/Message.java" "PACKAGE=${TEST_GROUP_ID}"
-  render_template "${TEMPLATES_DIR}/HelloResource.java" "${pkg_dir}/HelloResource.java" "PACKAGE=${TEST_GROUP_ID}"
-
-  if [ ! -f "${pkg_dir}/HelloFlow.java" ] || [ ! -f "${pkg_dir}/Message.java" ] || [ ! -f "${pkg_dir}/HelloResource.java" ]; then
-    record_result write_sources "Write workflow + REST source files" FAIL "one or more source files missing after render"
-    return 1
-  fi
-
-  record_result write_sources "Write workflow + REST source files" PASS ""
-  return 0
-}
-
-step_compile() {
-  if ! (cd "$PROJECT_DIR" && ./mvnw -B clean compile) > "${EVIDENCE_DIR}/compile.log" 2>&1; then
-    record_result compile "Compile project" FAIL "compile failed, see compile.log"
-    return 1
-  fi
-  if grep -q "BUILD FAILURE" "${EVIDENCE_DIR}/compile.log"; then
-    record_result compile "Compile project" FAIL "BUILD FAILURE found in compile.log despite exit 0"
-    return 1
-  fi
-  record_result compile "Compile project" PASS ""
   return 0
 }
 
@@ -339,10 +250,10 @@ main() {
 
   step_preflight || exit 1
   step_capture_environment
-  step_create_project || exit 1
-  step_add_flow_dependency || exit 1
-  step_write_source_files || exit 1
-  step_compile || exit 1
+  bootstrap_create_project || exit 1
+  bootstrap_add_flow_extension || exit 1
+  bootstrap_write_java_dsl_sources || exit 1
+  bootstrap_compile || exit 1
   step_start_devmode || exit 1
 
   step_verify_port || true

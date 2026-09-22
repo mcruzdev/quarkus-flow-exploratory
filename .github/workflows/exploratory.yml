@@ -1,4 +1,4 @@
-name: Area A - Local Developer Workflow
+name: Quarkus Flow Exploratory
 
 on:
   push:
@@ -61,26 +61,7 @@ jobs:
       RETRY_DELAY_SECONDS: ${{ vars.RETRY_DELAY_SECONDS }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-          # No `cache: maven` here: this repo has no checked-in pom.xml for
-          # setup-java to key a cache off of — the Quarkus project is
-          # generated at runtime under the gitignored work/ directory, and
-          # its dependencies (QF_VERSION, QUARKUS_PLATFORM_VERSION) can
-          # change per run anyway.
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install Playwright (Dev UI screenshot)
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
+      - uses: ./.github/actions/setup-flow-env
 
       - name: Run Area A automation
         run: ./scripts/areas/area-a.sh
@@ -110,9 +91,60 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  area-c:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      run_id: ${{ steps.locate-run.outputs.run_id }}
+    env:
+      # Same shared config as area-a — see its comment above.
+      QF_VERSION: ${{ inputs.qf_version || vars.QF_VERSION }}
+      QUARKUS_PLATFORM_VERSION: ${{ inputs.quarkus_platform_version || vars.QUARKUS_PLATFORM_VERSION }}
+      TEST_GROUP_ID: ${{ inputs.test_group_id || vars.TEST_GROUP_ID }}
+      TEST_ARTIFACT_ID: ${{ inputs.test_artifact_id || vars.TEST_ARTIFACT_ID }}
+      APP_PORT: ${{ inputs.app_port || vars.APP_PORT }}
+      READY_TIMEOUT_SECONDS: ${{ vars.READY_TIMEOUT_SECONDS }}
+      LIVE_RELOAD_TIMEOUT_SECONDS: ${{ vars.LIVE_RELOAD_TIMEOUT_SECONDS }}
+      LIVE_RELOAD_POLL_INTERVAL_SECONDS: ${{ vars.LIVE_RELOAD_POLL_INTERVAL_SECONDS }}
+      HTTP_TIMEOUT_SECONDS: ${{ vars.HTTP_TIMEOUT_SECONDS }}
+      GRACEFUL_STOP_SECONDS: ${{ vars.GRACEFUL_STOP_SECONDS }}
+      RETRY_MAX_ATTEMPTS: ${{ vars.RETRY_MAX_ATTEMPTS }}
+      RETRY_DELAY_SECONDS: ${{ vars.RETRY_DELAY_SECONDS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-flow-env
+
+      - name: Run Area C automation
+        run: ./scripts/areas/area-c.sh
+
+      - name: Locate run evidence dir
+        id: locate-run
+        if: always()
+        run: |
+          run_id="$(ls -1 evidence/area-c | sort | tail -1)"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: area-c-evidence-${{ github.run_id }}
+          path: evidence/area-c
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload latest run evidence (for report publishing)
+        if: always() && steps.locate-run.outputs.run_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: area-c-latest-run
+          path: evidence/area-c/${{ steps.locate-run.outputs.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+
   publish-report:
-    needs: area-a
-    if: always() && needs.area-a.outputs.run_id != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [area-a, area-c]
+    if: always() && (needs.area-a.outputs.run_id != '' || needs.area-c.outputs.run_id != '') && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -124,17 +156,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download latest run evidence
+      - name: Download area-a latest run
+        if: needs.area-a.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: area-a-latest-run
-          path: latest-run
+          path: latest-run/area-a
 
-      - name: Render HTML report
+      - name: Download area-c latest run
+        if: needs.area-c.outputs.run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: area-c-latest-run
+          path: latest-run/area-c
+
+      - name: Render reports and landing page
         run: |
           mkdir -p site
-          cp latest-run/*.png site/ 2>/dev/null || true
-          ./scripts/render-report-html.sh latest-run site/index.html
+          if [ -f latest-run/area-a/results.tsv ]; then
+            mkdir -p site/area-a
+            cp latest-run/area-a/*.png site/area-a/ 2>/dev/null || true
+            ./scripts/render-report-html.sh area-a latest-run/area-a site/area-a/index.html
+          fi
+          if [ -f latest-run/area-c/results.tsv ]; then
+            mkdir -p site/area-c
+            cp latest-run/area-c/*.png site/area-c/ 2>/dev/null || true
+            ./scripts/render-report-html.sh area-c latest-run/area-c site/area-c/index.html
+          fi
+          ./scripts/render-index-html.sh site site/index.html
 
       - uses: actions/configure-pages@v5
 
