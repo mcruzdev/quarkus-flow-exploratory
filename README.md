@@ -54,7 +54,7 @@ QF_VERSION=1.2.0 QUARKUS_PLATFORM_VERSION=3.28.4 ./scripts/areas/area-a.sh
 | `TEST_GROUP_ID` | `org.acme` | Generated project's Java package / Maven group ID. |
 | `TEST_ARTIFACT_ID` | `hello-flow` | Generated project's Maven artifact ID and directory name. |
 | `APP_PORT` | `8080` | Port `quarkus:dev` listens on. |
-| `READY_TIMEOUT_SECONDS` | `120` (doubled under CI) | How long to wait for `quarkus:dev` to become ready. |
+| `READY_TIMEOUT_SECONDS` | `180` (doubled under CI) | How long to wait for `quarkus:dev` to become ready. Startup time is sensitive to machine load (IDE background processes, other builds running concurrently) — bump this if you see `dev mode did not become ready` on a busy dev machine even though the same run succeeds when nothing else is running. |
 | `LIVE_RELOAD_TIMEOUT_SECONDS` | `30` | How long to poll for the live-reload change to take effect. |
 | `LIVE_RELOAD_POLL_INTERVAL_SECONDS` | `2` | Poll interval for the live-reload check. |
 | `HTTP_TIMEOUT_SECONDS` | `10` | Per-request curl timeout. |
@@ -63,6 +63,16 @@ QF_VERSION=1.2.0 QUARKUS_PLATFORM_VERSION=3.28.4 ./scripts/areas/area-a.sh
 | `RETRY_DELAY_SECONDS` | `5` | Delay between retries. |
 
 `CI=true` or `GITHUB_ACTIONS` being set automatically widens timeouts and retry counts — GitHub Actions sets both by default, so no extra configuration is needed there.
+
+### Overriding configuration in GitHub Actions
+
+The workflow ([`.github/workflows/area-a.yml`](.github/workflows/area-a.yml)) doesn't hardcode versions — it passes `QF_VERSION`, `QUARKUS_PLATFORM_VERSION`, `TEST_GROUP_ID`, `TEST_ARTIFACT_ID`, and `APP_PORT` through as env vars, resolved in this order:
+
+1. **Manual "Run workflow" input** — go to the *Actions* tab → *Area A - Local Developer Workflow* → *Run workflow*, and fill in any of the fields (e.g. a different `qf_version` to test an upcoming release). Only available for manually triggered runs, not `push`/`pull_request`.
+2. **Repository (or organization) Variable** — *Settings → Secrets and variables → Actions → Variables*, add e.g. `QF_VERSION` = `1.2.0`. This applies to every trigger type, including `push`/`pull_request`, with no workflow file changes needed.
+3. **The script's own default** in `config/defaults.env`, used whenever neither of the above is set.
+
+The other timeout/retry knobs aren't exposed as manual inputs (to keep the trigger form short) but still follow the same Variables-then-default precedence if you add a matching repository Variable.
 
 ## What it produces
 
@@ -102,3 +112,4 @@ Each run gets a fresh timestamped `RUN_ID`; nothing is ever overwritten, so runs
 | Port already in use before start | Another process is on `APP_PORT` | Detected before launching `quarkus:dev`; reported as `⛔ Blocked` with the offending PID when `lsof` is available, rather than hanging. |
 | `add-extension`/project creation fails after retries | Maven/network flakiness, or version incompatibility | Reported as `⛔ Blocked` (retries exhausted) vs. `🔴 Failed` (e.g. `pom.xml` malformed) — check `create-project.log` / `add-extension.log`, and consider bumping `QF_VERSION` / `QUARKUS_PLATFORM_VERSION`. |
 | Live reload never observes the new message | Recompile taking longer than `LIVE_RELOAD_TIMEOUT_SECONDS`, or the edit broke compilation | Check `live-reload-devmode-log-tail.txt` and `hello-flow-response-after-reload.json`. |
+| `dev mode did not become ready within Ns` | Almost always just slow startup under load, not a real hang — `devmode.log` will show it stopped mid-boot (e.g. right after `Listening for transport dt_socket at address: 5005`, the JVM debug-agent line, but before Quarkus's own `started in Xs. Listening on: http://localhost:8080` banner) rather than showing any error. Confirmed by re-running with `READY_TIMEOUT_SECONDS` raised: the exact same project finished in under 40s once the machine had less contention (other IDE/Maven processes running in the background). | Check `port 8080`/`5005` aren't held by a leftover process (`lsof -nP -iTCP:8080 -sTCP:LISTEN`); if they're free, just retry with a higher `READY_TIMEOUT_SECONDS`. |

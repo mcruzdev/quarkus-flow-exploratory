@@ -5,11 +5,55 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      qf_version:
+        description: "quarkus-flow version to test (QF_VERSION)"
+        required: false
+        default: ""
+      quarkus_platform_version:
+        description: "Quarkus platform version (QUARKUS_PLATFORM_VERSION)"
+        required: false
+        default: ""
+      test_group_id:
+        description: "Generated project's Maven group ID (TEST_GROUP_ID)"
+        required: false
+        default: ""
+      test_artifact_id:
+        description: "Generated project's Maven artifact ID (TEST_ARTIFACT_ID)"
+        required: false
+        default: ""
+      app_port:
+        description: "Port quarkus:dev listens on (APP_PORT)"
+        required: false
+        default: ""
 
 jobs:
   area-a:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Precedence per variable: manual "Run workflow" input (workflow_dispatch
+      # only) > repository/organization Actions Variable (Settings > Secrets
+      # and variables > Actions > Variables, works for push/PR too, no code
+      # change needed) > the script's own built-in default from
+      # config/defaults.env. Every value below is allowed to end up empty —
+      # the script's `: "${VAR:=default}"` fallback treats empty the same as
+      # unset, so an unconfigured variable never breaks a normal push/PR run.
+      QF_VERSION: ${{ inputs.qf_version || vars.QF_VERSION }}
+      QUARKUS_PLATFORM_VERSION: ${{ inputs.quarkus_platform_version || vars.QUARKUS_PLATFORM_VERSION }}
+      TEST_GROUP_ID: ${{ inputs.test_group_id || vars.TEST_GROUP_ID }}
+      TEST_ARTIFACT_ID: ${{ inputs.test_artifact_id || vars.TEST_ARTIFACT_ID }}
+      APP_PORT: ${{ inputs.app_port || vars.APP_PORT }}
+      # Not exposed as manual "Run workflow" inputs (to keep that form short),
+      # but still overridable via a repository/organization Variable of the
+      # same name.
+      READY_TIMEOUT_SECONDS: ${{ vars.READY_TIMEOUT_SECONDS }}
+      LIVE_RELOAD_TIMEOUT_SECONDS: ${{ vars.LIVE_RELOAD_TIMEOUT_SECONDS }}
+      LIVE_RELOAD_POLL_INTERVAL_SECONDS: ${{ vars.LIVE_RELOAD_POLL_INTERVAL_SECONDS }}
+      HTTP_TIMEOUT_SECONDS: ${{ vars.HTTP_TIMEOUT_SECONDS }}
+      GRACEFUL_STOP_SECONDS: ${{ vars.GRACEFUL_STOP_SECONDS }}
+      RETRY_MAX_ATTEMPTS: ${{ vars.RETRY_MAX_ATTEMPTS }}
+      RETRY_DELAY_SECONDS: ${{ vars.RETRY_DELAY_SECONDS }}
     steps:
       - uses: actions/checkout@v4
 
