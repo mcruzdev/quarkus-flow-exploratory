@@ -26,3 +26,21 @@ capture_cmd() {
     "$@"
   } >"$outfile" 2>&1 || true
 }
+
+# capture_screenshot <url> <outfile> <log_file> — best-effort Playwright
+# screenshot; returns 1 (without failing the caller's step) if node isn't
+# installed, dependencies aren't installed, or the capture errors out. Same
+# "degrade to an observation, don't fail the run" pattern as the jq fallback
+# described in the README.
+capture_screenshot() {
+  local url="$1" outfile="$2" log_file="$3"
+  if ! command -v node >/dev/null 2>&1; then
+    log_warn "node not found, skipping screenshot of ${url}"
+    return 1
+  fi
+  if ! node "${REPO_ROOT}/scripts/screenshot-dev-ui.mjs" "$url" "$outfile" >"$log_file" 2>&1; then
+    log_warn "Screenshot capture failed for ${url}, see $(basename "$log_file")"
+    return 1
+  fi
+  [ -f "$outfile" ]
+}

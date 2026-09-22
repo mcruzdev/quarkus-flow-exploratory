@@ -4,6 +4,8 @@ Bash automation for the [Quarkus Flow Exploratory Testing Guide](https://docs.qu
 
 Runs locally and in CI (GitHub Actions) — see [`.github/workflows/area-a.yml`](.github/workflows/area-a.yml).
 
+**Latest run report:** https://mcruzdev.github.io/quarkus-flow-exploratory/ (published automatically after every push to `main` — see [Published report](#published-report)).
+
 ## What Area A validates
 
 1. Generate a Quarkus project via the Maven plugin (no Quarkus CLI dependency).
@@ -14,7 +16,7 @@ Runs locally and in CI (GitHub Actions) — see [`.github/workflows/area-a.yml`]
 6. `GET /hello-flow` returns `{"message":"hello world!"}`.
 7. `GET /hello-flow/debug` returns the raw workflow output map.
 8. `POST /hello-flow` is rejected with `405 Method Not Allowed`.
-9. Dev UI is reachable at `/q/dev-ui` (reachability only — see [Known limitations](#known-limitations)).
+9. Dev UI is reachable at `/q/dev-ui`, with a full-page screenshot captured via Playwright for visual verification (workflow listed, diagram renders — see [Known limitations](#known-limitations)).
 10. Live reload: edit the workflow's message while `quarkus:dev` is running and confirm the new message is served.
 
 Every run always stops the background `quarkus:dev` process and writes a pass/fail/blocked summary, whether it succeeds, fails, or is interrupted.
@@ -28,6 +30,7 @@ Every run always stops the background `quarkus:dev` process and writes a pass/fa
 - git
 - `jq` recommended (assertions fall back to substring matching if absent)
 - Network access to Maven Central (first run resolves the Quarkus platform + extensions)
+- Node.js 18+ and npm — optional, only needed for the Dev UI screenshot step. Run `npm install && npx playwright install chromium` once; if `node` isn't found, the screenshot is skipped and the Dev UI step degrades to reachability-only (same as before), not a failure.
 
 ## Quick start
 
@@ -77,9 +80,13 @@ The other timeout/retry knobs aren't exposed as manual inputs (to keep the trigg
 ## What it produces
 
 - `work/area-a/<RUN_ID>/hello-flow/` — the generated Quarkus project (gitignored).
-- `evidence/area-a/<RUN_ID>/` — logs, response bodies, and `SUMMARY.md` (gitignored locally; uploaded as a build artifact in CI).
+- `evidence/area-a/<RUN_ID>/` — logs, response bodies, `dev-ui-screenshot.png`, and `SUMMARY.md` (gitignored locally; uploaded as a build artifact in CI).
 
 Each run gets a fresh timestamped `RUN_ID`; nothing is ever overwritten, so runs can be repeated freely.
+
+## Published report
+
+Every push to `main` runs the `publish-report` job ([`.github/workflows/area-a.yml`](.github/workflows/area-a.yml)), which takes that run's evidence directory, renders it to a standalone HTML page via [`scripts/render-report-html.sh`](scripts/render-report-html.sh), and deploys it to GitHub Pages: **https://mcruzdev.github.io/quarkus-flow-exploratory/**. It always reflects the most recent run on `main` — a failed run still gets published, since a red result is useful information too. Pull request runs are not published (only their evidence artifact is uploaded, per the existing behavior).
 
 ## Result Legend
 
@@ -93,7 +100,7 @@ Each run gets a fresh timestamped `RUN_ID`; nothing is ever overwritten, so runs
 
 ## Known limitations
 
-- **Dev UI check is reachability-only.** It confirms `/q/dev-ui` returns `200`, always recorded as 🟡. Dev UI is a single-page app, so confirming the workflow is actually listed and its diagram renders correctly still requires a human opening a browser.
+- **Dev UI check confirms reachability and captures a screenshot, but doesn't assert on content.** It confirms `/q/dev-ui` returns `200` and (best-effort, if Node/Playwright are available) captures a full-page screenshot of `dev-ui-screenshot.png`, always recorded as 🟡. This gives a human something to glance at without opening a browser themselves, but the script doesn't parse the screenshot or the DOM to assert the workflow is listed or the diagram rendered correctly — that judgment call is still manual.
 - Only Area A is automated. The other 18 areas in the guide (messaging, persistence, resilience, OpenShift, agentic/HITL, etc.) are still manual.
 
 ## Adding a new area

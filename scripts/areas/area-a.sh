@@ -293,12 +293,17 @@ step_dev_ui_reachability() {
   # bare redirect isn't mistaken for "unreachable".
   http_get "${BASE_URL}/q/dev-ui" "$out" -L
 
-  if [ "$HTTP_STATUS" = "200" ]; then
-    record_result dev_ui "Dev UI reachable at /q/dev-ui" OBSERVATION "reachability-only check; visual/content verification (workflow listed, diagram renders) needs a human/browser check"
-    return 0
+  if [ "$HTTP_STATUS" != "200" ]; then
+    record_result dev_ui "Dev UI reachable at /q/dev-ui" FAIL "expected 200, got ${HTTP_STATUS}"
+    return 1
   fi
-  record_result dev_ui "Dev UI reachable at /q/dev-ui" FAIL "expected 200, got ${HTTP_STATUS}"
-  return 1
+
+  local note="reachability-only check; screenshot capture failed or was skipped (node/Playwright unavailable), see dev-ui-screenshot.log"
+  if capture_screenshot "${BASE_URL}/q/dev-ui/" "${EVIDENCE_DIR}/dev-ui-screenshot.png" "${EVIDENCE_DIR}/dev-ui-screenshot.log"; then
+    note="dev-ui-screenshot.png captured for visual verification (workflow listed, diagram renders)"
+  fi
+  record_result dev_ui "Dev UI reachable at /q/dev-ui" OBSERVATION "$note"
+  return 0
 }
 
 step_live_reload() {

@@ -27,10 +27,15 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+
 jobs:
   area-a:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      run_id: ${{ steps.locate-run.outputs.run_id }}
     env:
       # Precedence per variable: manual "Run workflow" input (workflow_dispatch
       # only) > repository/organization Actions Variable (Settings > Secrets
@@ -67,8 +72,25 @@ jobs:
           # its dependencies (QF_VERSION, QUARKUS_PLATFORM_VERSION) can
           # change per run anyway.
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Playwright (Dev UI screenshot)
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
       - name: Run Area A automation
         run: ./scripts/areas/area-a.sh
+
+      - name: Locate run evidence dir
+        id: locate-run
+        if: always()
+        run: |
+          run_id="$(ls -1 evidence/area-a | sort | tail -1)"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
 
       - name: Upload evidence
         if: always()
@@ -78,3 +100,48 @@ jobs:
           path: evidence/area-a
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload latest run evidence (for report publishing)
+        if: always() && steps.locate-run.outputs.run_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: area-a-latest-run
+          path: evidence/area-a/${{ steps.locate-run.outputs.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish-report:
+    needs: area-a
+    if: always() && needs.area-a.outputs.run_id != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest run evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: area-a-latest-run
+          path: latest-run
+
+      - name: Render HTML report
+        run: |
+          mkdir -p site
+          cp latest-run/*.png site/ 2>/dev/null || true
+          ./scripts/render-report-html.sh latest-run site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -78,6 +78,14 @@ render_summary() {
       printf '| %s | %s | %s %s | %s |\n' "$id" "$desc" "$(status_emoji "$status")" "$(status_label "$status")" "$note"
     done
     echo
+
+    if [ -f "${dir}/dev-ui-screenshot.png" ]; then
+      echo "## Dev UI Screenshot"
+      echo
+      echo "![Dev UI](dev-ui-screenshot.png)"
+      echo
+    fi
+
     echo "## Result Legend"
     echo
     echo "| Result | Meaning |"
