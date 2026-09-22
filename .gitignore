@@ -1,0 +1,11 @@
+work/*
+!work/.gitkeep
+
+evidence/*
+!evidence/.gitkeep
+
+*.log
+*.tmp
+.DS_Store
+.idea/
+*.iml
