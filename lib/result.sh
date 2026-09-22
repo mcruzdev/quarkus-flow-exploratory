@@ -79,10 +79,14 @@ render_summary() {
     done
     echo
 
-    if [ -f "${dir}/dev-ui-screenshot.png" ]; then
-      echo "## Dev UI Screenshot"
+    if [ -f "${dir}/01-dev-ui-extensions.png" ]; then
+      echo "## Dev UI Screenshots"
       echo
-      echo "![Dev UI](dev-ui-screenshot.png)"
+      echo "Extensions page, then the Flow extension's Workflows list after clicking through:"
+      echo
+      echo "![Dev UI Extensions](01-dev-ui-extensions.png)"
+      echo
+      echo "![Dev UI Workflows](02-dev-ui-workflows.png)"
       echo
     fi
 

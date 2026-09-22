@@ -2,9 +2,9 @@
   "name": "quarkus-flow-exploratory",
   "private": true,
   "type": "module",
-  "description": "Playwright screenshot helper for the Quarkus Flow exploratory automation (Area A Dev UI evidence).",
+  "description": "Playwright Dev UI click-through flow for the Quarkus Flow exploratory automation (Area A evidence).",
   "scripts": {
-    "screenshot:dev-ui": "node scripts/screenshot-dev-ui.mjs"
+    "dev-ui-flow": "node scripts/playwright/area-a-dev-ui-flow.mjs"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

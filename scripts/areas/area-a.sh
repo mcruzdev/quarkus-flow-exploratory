@@ -298,9 +298,9 @@ step_dev_ui_reachability() {
     return 1
   fi
 
-  local note="reachability-only check; screenshot capture failed or was skipped (node/Playwright unavailable), see dev-ui-screenshot.log"
-  if capture_screenshot "${BASE_URL}/q/dev-ui/" "${EVIDENCE_DIR}/dev-ui-screenshot.png" "${EVIDENCE_DIR}/dev-ui-screenshot.log"; then
-    note="dev-ui-screenshot.png captured for visual verification (workflow listed, diagram renders)"
+  local note="reachability-only check; screenshot flow failed or was skipped (node/Playwright unavailable), see dev-ui-flow.log"
+  if capture_dev_ui_flow "$BASE_URL" "$EVIDENCE_DIR" "${EVIDENCE_DIR}/dev-ui-flow.log"; then
+    note="clicked Extensions -> Flow's Workflows link and confirmed the list renders a row; see 01-dev-ui-extensions.png and 02-dev-ui-workflows.png"
   fi
   record_result dev_ui "Dev UI reachable at /q/dev-ui" OBSERVATION "$note"
   return 0
